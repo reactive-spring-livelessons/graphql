@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <title>GraphQL over WebSocket</title>
+    <script type="text/javascript" src="https://unpkg.com/graphql-ws/umd/graphql-ws.js"></script>
+
+    <script>
+
+        // just copy and paste this
+        class Graphql {
+
+            constructor(url) {
+                this.client = graphqlWs.createClient({url: url})
+            }
+
+            subscribe(q, callback) {
+                this.client.subscribe(
+                    {query: q},
+                    {
+                        next: callback,
+                        error: (err) => console.error('there is an error', err),
+                        complete: () => console.log('subscription is complete.'),
+                    },
+                );
+
+            }
+
+            async query(queryString) {
+                return await new Promise((resolve, reject) => {
+                    let result;
+                    this.client.subscribe(
+                        {
+                            query: queryString,
+                        },
+                        {
+                            next: (data) => (result = data),
+                            error: reject,
+                            complete: () => resolve(result),
+                        },
+                    );
+                })
+
+            }
+
+
+        }
+
+        class Crm {
+
+            constructor() {
+                this.client = new Graphql('ws://localhost:8080/graphql')
+            }
+
+            async readCustomers() {
+                const q = `
+                 { customers { id, name } }
+                `
+                return (await this.client.query(q)) ['data']['customers']
+            }
+
+            async addCustomer(name) {
+                const q = `
+                    mutation {
+                      addCustomer(name : "${name}") { id, name }
+                    }
+                `
+                return (await this.client.query(q))['data']['addCustomer']
+            }
+
+            subscribeToCustomerUpdates(customerId, callback) {
+                const q = `
+                subscription {
+                    customerEvents( id : ${customerId} ) {
+                        customer { id, name }
+                        event
+                    }
+                }
+                `
+                this.client.subscribe(q, (next) => {
+                    const result = next ['data']['customerEvents']
+                    callback(result)
+                });
+            }
+        }
+
+        window.addEventListener('load', async () => {
+            const crm = new Crm()
+            await crm.subscribeToCustomerUpdates(2, (event) => {
+                console.log(event.customer.id + ' = '
+                    + event.customer.name + ' ' + event.event + ' @ ' + new Date())
+            })
+            await crm.addCustomer('Bob')
+            const customers = await crm.readCustomers()
+            console.log('customer: ', customers)
+        })
+
+    </script>
+</head>
+<body>
+</body>
+</html>
